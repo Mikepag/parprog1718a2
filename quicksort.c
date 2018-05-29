@@ -6,6 +6,7 @@
 #define THREADS 4
 #define LIMIT 50000
 #define N 1000000
+#define CUTOFF 10
 
 struct parameters {
 	double *start;		//points to the first cell of the part of the array to be sorted.
@@ -27,6 +28,61 @@ pthread_cond_t msg_out = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
+void inssort(double *a,int n) {
+	int i,j;
+	double t;
+
+	for (i=1;i<n;i++) {
+		j = i;
+		while ((j>0) && (a[j-1]>a[j])) {
+			t = a[j-1];  a[j-1] = a[j];  a[j] = t;
+			j--;
+		}
+	}
+}
+
+int partition(double *a, int n) {
+	int first, middle, last;
+	double p,t;
+	int i,j;
+
+	first = 0;
+	middle = n-1;
+	last = n/2;  
+
+	// put median-of-3 in the middle
+	if (a[middle]<a[first]) { t = a[middle]; a[middle] = a[first]; a[first] = t; }
+	if (a[last]<a[middle]) { t = a[last]; a[last] = a[middle]; a[middle] = t; }
+	if (a[middle]<a[first]) { t = a[middle]; a[middle] = a[first]; a[first] = t; }
+
+	// partition (first and last are already in correct half)
+	p = a[middle]; // pivot
+	for (i=1,j=n-2;;i++,j--) {
+		while (a[i]<p) i++;
+		while (p<a[j]) j--;
+		if (i>=j) break;
+		
+		t = a[i]; a[i] = a[j]; a[j] = t;      
+	}
+	return i;
+}
+
+void quicksort(double *a,int n) {
+	int i;
+
+	// check if below cutoff limit
+	if (n<=CUTOFF) {
+		inssort(a,n);
+		return;
+	}
+
+	i = partition(a, n);
+
+	// recursively sort halves
+	quicksort(a,i);
+	quicksort(a+i,n-i);
+
+}
 
 
 void putNewTask(double *a, int n, int shutdown) {	//PUTS new task into circular buffer.
@@ -91,7 +147,7 @@ void *thread_func(void *args) {
 	double **ptr_a; //points to pointer a. Used for passing address of pointer a to getNewTask() function.
 	int n;
 	int *ptr_n; //points to variable n. Used for passing address of variable n to getNewTask() function.		
-	//int i;	
+	int i;	
 	int getTask_success = -1;
 	
 	ptr_a = &a;
@@ -119,15 +175,19 @@ void *thread_func(void *args) {
 			break;	//because the whole array is sorted.
 		}
 		if(getTask_success == 1) {	//successfully got new task from buffer.
-		
+			printf("Successfully got new task from buffer\n");
 		////////////////////////////////////////
 			if(n < LIMIT) {
-				//quicksort(a, n);		<<<<<< NOT DEFINED YET
+				quicksort(a, n);
 			}
 			else {
-				//i = partition(a, n);	<<<<<< NOT DEFINED YET
-				//putNewTask(a, i, 0);
-				//putNewTask(i, n, 0);
+				i = partition(a, n);
+				
+				//ch_0.a = a; 		ch_0.n = i;			Task1: a --> n
+    			//ch_1.a = a + i;	ch_1.n = n - i;		Task2: (a+i) --> (n-1)
+
+				putNewTask(a, i, 0);
+				putNewTask(a+i, n-i, 0);
 		////////////////////////////////////////			
 			}
 		}
@@ -161,7 +221,7 @@ int main() {
 		printf("Thread %d created!\n", thrdnum);
 	}
 	
-	//putNewTask(0, N, 1);
+	//putNewTask(0, N, 0);
 
 	for(thrdnum=0; thrdnum<THREADS; thrdnum++) {
 		pthread_join(threadPool[thrdnum], NULL);
