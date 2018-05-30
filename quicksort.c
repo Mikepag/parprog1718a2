@@ -1,16 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-
-#define C_BUFFER_SIZE 1000
-#define THREADS 4
-#define LIMIT 50000
-#define N 1000000
-#define CUTOFF 10
+				//Default Values:
+#define C_BUFFER_SIZE 1000	//1000
+#define THREADS 4		//4
+#define LIMIT 50000		//50000
+#define N 1000000		//1000000
+#define CUTOFF 10		//10
 
 struct parameters {
 	double *start;		//points to the first cell of the part of the array to be sorted.
-	int end;			//points to the last cell of the part of the array to be sorted.
+	int end;		//points to the last cell of the part of the array to be sorted.
 	int shutdown;		//equals 1 when the whole array is sorted
 };
 
@@ -21,6 +21,9 @@ int cbuf_out = 0;	//is equal to the number of the circular buffer's cell, from w
 
 // global avail messages count (0 or 1)
 int global_availmsg = 0;	// empty
+
+int global_n_counter = 0;	//n_counter is equal to the number of the last sorted array's cell. If n_counter == N, then whole array[N] is sorted!
+
 // condition variable, signals a put operation (getNewTask() waits on this)
 pthread_cond_t msg_in = PTHREAD_COND_INITIALIZER;
 // condition variable, signals a get operation (putNewTask() waits on this)
@@ -28,9 +31,14 @@ pthread_cond_t msg_out = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
-void inssort(double *a,int n) {
+
+
+int inssort(double *a,int n) {
 	int i,j;
 	double t;
+
+	global_n_counter = global_n_counter + n;
+	
 
 	for (i=1;i<n;i++) {
 		j = i;
@@ -39,7 +47,16 @@ void inssort(double *a,int n) {
 			j--;
 		}
 	}
+	
+	if(global_n_counter == N) {	//when n_counter reaches N, whole array is sorted!
+		printf("global_n_counter = %d\n", global_n_counter);
+		return 1;	//inssort returns 1 if whole array[N] is sorted.
+	}
+	else {
+		return 0;	//inssort returns 0 if array[N] is not fully sorted yet.
+	}
 }
+
 
 int partition(double *a, int n) {
 	int first, middle, last;
@@ -67,28 +84,32 @@ int partition(double *a, int n) {
 	return i;
 }
 
-void quicksort(double *a,int n) {
+
+int quicksort(double *a,int n) {
 	int i;
+	int sorted = 0;	//sorted gets value returned from inssort(). Indicates whether array[N] is sorted or not.
 
 	// check if below cutoff limit
 	if (n<=CUTOFF) {
-		inssort(a,n);
-		return;
+		sorted = inssort(a,n);	//inssort returns 1 if whole array is sorted. Else returns 0.
+		return sorted;	//quicksort (just like inssort) returns 1 if whole array is sorted. Else returns 0.
 	}
 
 	i = partition(a, n);
 
 	// recursively sort halves
-	quicksort(a,i);
-	quicksort(a+i,n-i);
+	quicksort(a,i);			//this call can NOT return 1 because it's quicksorting the first half of sub-array[n]
+	sorted = quicksort(a+i,n-i);	//if this returns 1, array[N] is sorted.
 
+	return sorted;	//quicksort (just like inssort) returns 1 if whole array is sorted. Else returns 0.
 }
 
 
 void putNewTask(double *a, int n, int shutdown) {	//PUTS new task into circular buffer.
 
 	while ((global_availmsg >= C_BUFFER_SIZE)) {	//while circular buffer is full
-		pthread_cond_wait(&msg_out,&mutex);			// wait until a msg is extracted from buffer - NOTE: mutex MUST be locked here.
+		printf("waiting msg_out");
+		pthread_cond_wait(&msg_out,&mutex);			// wait until a msg is extracted from buffer - NOTE: mutex MUST be locked here.	
 	}
 	
 	circular_buffer[cbuf_in].start = a;
@@ -99,13 +120,14 @@ void putNewTask(double *a, int n, int shutdown) {	//PUTS new task into circular 
 
 	cbuf_in = cbuf_in +1;
 	if( cbuf_in == (C_BUFFER_SIZE-1) )	{	//if cbuf_out reached end of buffer...
-		cbuf_out = 0;						//cbuf_out to "points" to start again.
+		cbuf_out = 0;				//cbuf_out to "points" to start again.
 	}
-	else {									//else, if cbuf_in didn't reach end of buffer yet...
-		cbuf_in = cbuf_in+1;				//increment cbuf_in.
+	else {						//else, if cbuf_in didn't reach end of buffer yet...
+		cbuf_in = cbuf_in+1;			//increment cbuf_in.
 	}
 
 	global_availmsg = global_availmsg +1;
+	printf("availmsg = %d\n", global_availmsg);
 
 	pthread_cond_signal(&msg_in);	// signal getNewTask() that a task was added to buffer (used when cbuffer is empty)
 }
@@ -113,7 +135,8 @@ void putNewTask(double *a, int n, int shutdown) {	//PUTS new task into circular 
 
 int getNewTask(double **ptr_a, int *ptr_n) {	//GETS new task from circular buffer.
 			
-	while (global_availmsg<1) {				//while buffer is Empty
+	while (global_availmsg<1) {
+		printf("waiting msg_in\n");		//while buffer is Empty
 		pthread_cond_wait(&msg_in,&mutex);	//wait until a msg is received in buffer - NOTE: mutex MUST be locked here.
 	}
 
@@ -127,13 +150,14 @@ int getNewTask(double **ptr_a, int *ptr_n) {	//GETS new task from circular buffe
 
 		cbuf_out = cbuf_out +1;
 		if( cbuf_out == (C_BUFFER_SIZE-1) )	{	//if cbuf_out reached end of buffer...
-			cbuf_out = 0;						//cbuf_out to "points" to start again.
+			cbuf_out = 0;				//cbuf_out to "points" to start again.
 		}
-		else {									//else, if cbuf_out didn't reach end of buffer yet...
-			cbuf_out = cbuf_out+1;				//increment cbuf_out.
+		else {						//else, if cbuf_out didn't reach end of buffer yet...
+			cbuf_out = cbuf_out+1;			//increment cbuf_out.
 		}
 
 		global_availmsg = global_availmsg -1;
+		printf("availmsg = %d\n", global_availmsg);
 
 		pthread_cond_signal(&msg_out);	// signal putNewTask() that a task was removed from buffer (used when cbuffer is full)
 
@@ -149,6 +173,7 @@ void *thread_func(void *args) {
 	int *ptr_n; //points to variable n. Used for passing address of variable n to getNewTask() function.		
 	int i;	
 	int getTask_success = -1;
+	int sorted = 0;	//sorted gets value returned from quicksort(). Indicates whether array[N] is sorted or not.
 	
 	ptr_a = &a;
 	ptr_n = &n;
@@ -171,29 +196,35 @@ void *thread_func(void *args) {
 			printf("Error, something went wrong while getting task from buffer\n");
 		}
 		if(getTask_success == 0) {	//received shutdown message.
-			printf("\nReceived shutdown message\n\n");
+			printf("\n----- Received shutdown message -----\n\n");
 			break;	//because the whole array is sorted.
 		}
 		if(getTask_success == 1) {	//successfully got new task from buffer.
 			printf("Successfully got new task from buffer\n");
-		////////////////////////////////////////
 			if(n < LIMIT) {
-				quicksort(a, n);
+				sorted = quicksort(a, n);
+				if(sorted == 1) {			//if quisort returns 1, array[N] is sorted.
+					for(i=0; i<THREADS; i++) {
+						putNewTask(a, -1, 1);	//sending SHUTDOWN message to other threads
+						pthread_cond_signal(&msg_in);
+					}					
+				}
 			}
 			else {
 				i = partition(a, n);
 				
-				//ch_0.a = a; 		ch_0.n = i;			Task1: a --> n
-    			//ch_1.a = a + i;	ch_1.n = n - i;		Task2: (a+i) --> (n-1)
+				//ch_0.a = a; 		ch_0.n = i;		Task1: a --> n
+    				//ch_1.a = a + i;	ch_1.n = n - i;		Task2: (a+i) --> (n-1)
 
 				putNewTask(a, i, 0);
-				putNewTask(a+i, n-i, 0);
-		////////////////////////////////////////			
+				putNewTask(a+i, n-i, 0);			
 			}
 		}
 		// unlock mutex__________________________________________________________________________________________
 		pthread_mutex_unlock(&mutex);
 	}
+	// unlock mutex
+	pthread_mutex_unlock(&mutex);	//unlocking mutex also here in case a shutdown message is received and we break from for(;;).
 	// exit and let be joined
 	pthread_exit(NULL);
 }
@@ -203,8 +234,32 @@ void *thread_func(void *args) {
 
 
 int main() {
-	printf("Hello World!\n");
+	printf("\nHello World!\n");
 
+	double *array;
+	int i;
+	
+	//mallocing array
+	array = (double *) malloc(N*sizeof(double));
+	if (array==NULL) {
+		printf("error in malloc\n");
+		exit(1);
+	}
+	printf("array[] created\n");
+
+	// fill array with random numbers
+	srand(time(NULL));
+	for (i=0;i<N;i++) {
+		array[i] = (double)rand()/RAND_MAX;
+	}
+	printf("array[] filled with random numbers\n\n");
+
+	//for(i=0; i<N; i++) {
+	//	printf("array[%d] = %lf\n", i, array[i]);
+	//}
+	
+
+	
 	//________________________________________________________
 	//THREADPOOL
 	int thrdnum;
@@ -221,14 +276,35 @@ int main() {
 		printf("Thread %d created!\n", thrdnum);
 	}
 	
-	//putNewTask(0, N, 0);
+	putNewTask(array, N, 0);	//Creates the first task which includes the whole array[N]
+	
 
+	//join threads
 	for(thrdnum=0; thrdnum<THREADS; thrdnum++) {
+		//pthread_mutex_unlock(&mutex);
 		pthread_join(threadPool[thrdnum], NULL);
 		printf("Thread %d joined!\n", thrdnum);
 	}
-
 	//________________________________________________________
+
+	
+
+
+	// check sorting
+	for (i=0;i<(N-1);i++) {
+		if (array[i]>array[i+1]) {
+			printf("Sort failed!\n");
+			break;
+		}
+	}
+	
+	printf("\nARRAY SORTED SUCCESSFULLY!\n\n");
+
+
+	free(array);
+
+	// destroy mutex - should be unlocked
+	pthread_mutex_destroy(&mutex);
 
 
 	return 0;
