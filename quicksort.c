@@ -1,3 +1,6 @@
+//COMPILE WITH: gcc -Wall -pthread quicksort.c -o quicksort
+//RUN WITH: ./quicksort
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -58,7 +61,7 @@ int inssort(double *a,int n) {
 	
 
 	if(global_n_counter == N) {	//when n_counter reaches N, the array[N] is sorted!
-		printf("global_n_counter = %d\n", global_n_counter);
+		printf("\nglobal_n_counter = %d - Full Array is Sorted\n", global_n_counter);
 		return 1;	//inssort returns 1 if the whole array[N] is sorted.
 	}
 	else {
@@ -136,7 +139,7 @@ void putNewTask(double *a, int n, int shutdown) {	// PUTS a new task into circul
 
 
 	global_availmsg = global_availmsg +1;		// Incrementing global_availmsg because a new message (task) was added to circular buffer.
-	printf("availmsg = %d\n", global_availmsg);
+	//printf("availmsg = %d\n", global_availmsg);
 
 	pthread_cond_signal(&msg_in);	// Signal getNewTask() that a task was added to buffer (used when cbuffer is empty)
 }
@@ -169,7 +172,7 @@ int getNewTask(double **ptr_a, int *ptr_n) {		// GETS a new task from circular b
 		}
 
 		global_availmsg = global_availmsg -1;		// Reduce global_availmsg by 1 because a message (task) was removed from circular buffer.
-		printf("availmsg = %d\n", global_availmsg);
+		//printf("availmsg = %d\n", global_availmsg);
 
 		pthread_cond_signal(&msg_out);	// Signal putNewTask() that a task was removed from buffer (used when cbuffer is full)
 
@@ -212,7 +215,7 @@ void *thread_func(void *args) {
 			break;	// Because the whole array is sorted.
 		}
 		if(getTask_success == 1) {	// Successfully got new task from buffer.
-			printf("Successfully got new task from buffer\n");
+			//printf("Successfully got new task from buffer\n");
 			if(n < LIMIT) {
 				sorted = quicksort(a, n);
 				if(sorted == 1) {			// If quisort returns 1, array[N] is sorted.
@@ -235,7 +238,7 @@ void *thread_func(void *args) {
 		pthread_mutex_unlock(&mutex);
 	}
 	// unlock mutex
-	pthread_mutex_unlock(&mutex);	// Unlocking mutex also here in case a shutdown message is received and we break from for(;;) in line 212.
+	pthread_mutex_unlock(&mutex);	// Unlocking mutex also here in case a shutdown message is received and we break from for(;;) in line 215.
 	// exit and let be joined
 	pthread_exit(NULL);
 }
